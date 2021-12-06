@@ -74,7 +74,8 @@ test_submission = copy.deepcopy(sample_submission)
 
 storage = defaultdict(list)
 
-end_stock_date = '20211029' #이번주 주식 끝나는 날 입력
+end_stock_date = '20211105' #이번주 주식 끝나는 날 입력
+valid_stock_date = end_stock_date
 year = end_stock_date[:4]
 month = end_stock_date[4:6]
 day = end_stock_date[6:]
@@ -335,10 +336,8 @@ e7 = extract(ts7); e8 = extract(ts8); e9 = extract(ts9); e10 = extract(ts10); e1
 for id, e in enumerate([e2,e3,e4,e5,e6,e7,e8,e9,e10,e11]):
     with open(f'./e{id+2}','wb') as f:
         pickle.dump(e,f)
-
 with open('./storage.pkl','wb') as f:
     pickle.dump(storage,f)
-
 with open(f'./e2','rb') as f:
     e2 = pickle.load(f)
 with open(f'./e3', 'rb') as f:
@@ -379,6 +378,142 @@ for id, te in enumerate([e2, e3, e4, e5, e6, e7, e8, e9, e10, e11]):
             if value > com:
                 storage[e] = id+2
                 method[e] = id+2
+
+vstorage = defaultdict(list)
+for k, v in storage.items():
+    vstorage[v].append(k)
+del vstorage[1]
+
+for end_date in [valid_stock_date]:
+    total_loss =0.
+    del_list = []
+    se = []
+    for k, v in vstorage.items():
+        lv = len(v)
+        pass_list =[]
+        for vv in v:
+            for e, (code, store) in enumerate(tqdm(zip(stock_list['종목코드'].values, storage.values()),total=len(range(370)))):
+                if e == vv:
+                    if e in nyear:
+                        start_date = '20210104'
+                    else:
+                        start_date = '20160104'
+                    start_weekday = pd.to_datetime(start_date).weekday()
+                    max_weeknum = pd.to_datetime(end_date).strftime('%V')
+                    Business_days = pd.DataFrame(pd.date_range(start_date, end_date, freq='B'), columns=['Date'])
+                    data = fdr.DataReader(code, start=start_date, end=end_date).reset_index()
+                    data = pd.merge(Business_days, data, how='outer')
+                    data['weekday'] = data.Date.apply(lambda x: x.weekday())
+                    data['weeknum'] = data.Date.apply(lambda x: x.strftime('%V'))
+                    data.Close = data.Close.ffill()
+                    data.Open = data.Open.ffill()
+                    data.High = data.High.ffill()
+                    data.Low = data.Low.ffill()
+                    data.Volume = data.Volume.ffill()
+                    data.Change = data.Change.ffill()
+                    data.weekday = data.weekday.ffill()
+                    data.weeknum = data.weeknum.ffill()
+                    data['weeknum'] = data['weeknum'].map(lambda x: int(x))
+                    data['week'] = data.weeknum
+
+                    Data = Make_Data(data)
+                    week = Data['week']
+                    data = Data[['Date', 'Close']]
+                    data.columns = ['ds', 'y']
+                    train = data[:-5]
+                    week = week[:-5]
+                    test_data = data.iloc[-5:, 1]
+                    model = ARIMA(train['y'], order=(1, 1, 0), )
+                    model_fit = model.fit()
+                    forecast_ = model_fit.forecast(steps=5, )  # 마지막 5일의 예측 데이터
+                    tmp = nmae(test_data, np.array(forecast_).reshape(-1))
+
+                    if store == 2:
+                        model = ARIMA(train['y'], order=(0, 1, 1), )
+                        model_fit = model.fit()
+                        forecast_data = model_fit.forecast(steps=5)  # 마지막 5일의 예측 데이터
+                        tmp2 = nmae(test_data, np.array(forecast_data).reshape(-1))
+                    elif store == 3:
+                        ex = week.iloc[-1]
+                        ex = np.array([ex + 1, ex + 1, ex + 1, ex + 1, ex + 1])
+                        model = ARIMA(train['y'], order=(1, 1, 0), exog=week.iloc[:])
+                        model_fit = model.fit()
+                        forecast_data = model_fit.forecast(steps=5, exog=ex)  # 마지막 5일의 예측 데이터
+                        tmp2 = nmae(test_data, np.array(forecast_data).reshape(-1))
+                    elif store == 4:
+                        model = ARIMA(train['y'], order=(1, 0, 0), )
+                        model_fit = model.fit()
+                        forecast_data = model_fit.forecast(steps=5, )  # 마지막 5일의 예측 데이터
+                        tmp2 = nmae(test_data, np.array(forecast_data).reshape(-1))
+                    elif store == 5:
+                        def moving_average(x, w):
+                            return np.convolve(x, np.ones(w), 'valid') / w
+
+
+                        model = ARIMA(train['y'], order=(1, 1, 0), )
+                        model_fit = model.fit()
+                        forecast_data = model_fit.forecast(steps=10)  # 마지막 5일의 예측 데이터
+                        forecast_data = moving_average(np.array(forecast_data).reshape(-1), 6)
+                        tmp2 = nmae(test_data, np.array(forecast_data).reshape(-1))
+                    elif store == 6:
+                        model = ARIMA(np.log1p(train['y']), order=(1, 1, 0), )
+                        model_fit = model.fit()
+                        forecast_data = model_fit.forecast(steps=5, )  # 마지막 5일의 예측 데이터
+                        forecast_data = np.exp(forecast_data) + 1
+                        tmp2 = nmae(test_data, np.array(forecast_data).reshape(-1))
+                    elif store == 7:
+                        model = ARIMA(train['y'], order=(1, 2, 0))
+                        model_fit = model.fit()
+                        forecast_data = model_fit.forecast(steps=5, )  # 마지막 5일의 예측 데이터
+                        tmp2 = nmae(test_data, np.array(forecast_data).reshape(-1))
+                    elif store == 8:
+                        start = Data.iloc[-1]
+                        start = start['Close']
+                        x = Data.iloc[:].diff().dropna()
+                        x_train = x[['Close', 'High', 'Low', 'Open', 'Change']]
+                        mod = sm.tsa.VAR(x_train)
+                        res = mod.fit()
+                        lag_order = res.k_ar
+                        x_test = x_train.values[-lag_order:]
+                        forecast_data = res.forecast(steps=5, y=x_test)
+                        forecast_data = start + forecast_data[:, 0]
+                        tmp2 = nmae(test_data, np.array(forecast_data).reshape(-1))
+                    elif store == 9:
+                        model = ARIMA(train['y'].rolling(window=1).mean(), order=(1, 1, 0), )
+                        model_fit = model.fit()
+                        forecast_data = model_fit.forecast(steps=5)  # 마지막 5일의 예측 데이터
+                        tmp2 = nmae(test_data, np.array(forecast_data).reshape(-1))
+                    elif store == 10:
+                        train = train.ffill()
+                        train = train.bfill()
+                        model = ARIMA(train['y'], order=(1, 1, 0), )
+                        model_fit = model.fit(method='yule_walker')
+                        forecast_data = model_fit.forecast(steps=5)  # 마지막 5일의 예측 데이터
+                        tmp2 = nmae(test_data, np.array(forecast_data).reshape(-1))
+                    else:
+                        model = ARIMA(train['y'], order=(1, 1, 0), trend=[0, 1])
+                        model_fit = model.fit()
+                        forecast_data = model_fit.forecast(steps=5, )  # 마지막 5일의 예측 데이터
+                        tmp2 = nmae(test_data, np.array(forecast_data).reshape(-1))
+
+                    if tmp2 < tmp:
+                        pass_list.append(e)
+        # print(pass_list)
+        if len(pass_list)/lv > 0.6:
+            pass
+        else:
+             del_list.append(k)
+    for dl in del_list:
+        del vstorage[dl]
+
+#reset storage
+storage = {}
+for i in range(370):
+    storage[i] = 1
+for k,v in vstorage.items():
+    for vv in v:
+        storage[vv] = k
+
 
 for end_id, end_date in enumerate(eval_stock_date):
     total_loss = 0.
@@ -565,9 +700,12 @@ for end_id, end_date in enumerate(eval_stock_date):
 
 '''
 ['20211001', '20211008', '20211015', '20211022', '20211029', '20211105', '20211112']
+#20211022
 
+#20211029
+2.8097625058576563
 #1105
-
+2.969917546242827
 #1112
 3.599326758137693
 '''
